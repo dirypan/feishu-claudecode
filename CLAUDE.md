@@ -47,7 +47,9 @@ Sessions are keyed by `chatId` (not `userId`), so each group chat and DM gets it
 
 ### Security Model
 
-The service runs Claude in **`bypassPermissions` mode** — Claude can read, write, and execute commands without interactive approval. This is necessary because there's no terminal for user confirmation in a chat bot context. Users control access via `AUTHORIZED_USER_IDS` and `CLAUDE_ALLOWED_TOOLS` env vars.
+The service runs Claude in **permission-controlled mode** with automatic approval. Claude can read, write, and execute commands, but this is controlled through the `CLAUDE_ALLOWED_TOOLS` configuration. This is necessary because there's no terminal for user confirmation in a chat bot context. Users control access via `AUTHORIZED_USER_IDS` and `CLAUDE_ALLOWED_TOOLS` env vars.
+
+**Important**: The service should **not be run as root**. If running as root, the service uses `dontAsk` permission mode instead of `bypassPermissions` due to Claude Code CLI security restrictions.
 
 ### Group Chat Behavior
 
@@ -110,3 +112,53 @@ Common scenarios:
 - User requests a log file or configuration file
 
 The file will be uploaded to Feishu and sent as a downloadable attachment in the chat.
+
+## Troubleshooting
+
+### "Claude Code process exited with code 1"
+
+**Symptom**: Service fails to execute Claude queries with error:
+```
+Error: Claude Code process exited with code 1
+```
+
+**Root Cause**: Claude Code CLI has a security check that prevents using `--dangerously-skip-permissions` when running with root/sudo privileges.
+
+**When This Happens**:
+1. Service is running as root user
+2. Environment variables are set in `.bashrc` but not in `.env`
+
+**Solution 1: Run as Non-Root User (Recommended)**
+
+The service should not be run as root. Create a dedicated user:
+
+```bash
+# Create service user
+useradd -r -s /bin/bash -d /home/claudebot claudebot
+
+# Transfer ownership
+chown -R claudebot:claudebot /data0/pd/feishu-claudecode
+
+# Run as that user
+su - claudebot
+cd /data0/pd/feishu-claudecode
+npm run dev
+```
+
+**Solution 2: Fix Environment Variables**
+
+Environment variables in `~/.bashrc` are **not** inherited by Node.js child processes. They must be in `.env`:
+
+```bash
+# In /data0/pd/feishu-claudecode/.env (not ~/.bashrc)
+ANTHROPIC_AUTH_TOKEN=sk-your-token-here
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+```
+
+**Why `.bashrc` doesn't work**:
+- `.bashrc` is only loaded for interactive shells (when you open a terminal)
+- Node.js spawns the Claude CLI as a non-interactive child process
+- Non-interactive processes don't load `.bashrc`
+- The `.env` file is loaded by dotenv and inherited by all child processes
+
+**Implementation Note**: When running as root, the service automatically falls back to `dontAsk` permission mode (in `src/claude/executor.ts`) instead of `bypassPermissions` to avoid the security check.

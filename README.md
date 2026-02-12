@@ -152,6 +152,42 @@ Feishu User
   → User sees real-time progress and results in Feishu
 ```
 
+### Troubleshooting
+
+#### Error: "Claude Code process exited with code 1"
+
+**Problem**: If you see this error and the service is running as root user:
+```
+Error: Claude Code process exited with code 1
+```
+
+**Cause**: Claude Code CLI has a security restriction that prevents using bypass permissions mode when running with root/sudo privileges.
+
+**Solution 1: Run as non-root user (Recommended)**
+```bash
+# Create a dedicated service user
+useradd -r -s /bin/bash -d /home/claudebot claudebot
+
+# Change ownership
+chown -R claudebot:claudebot /path/to/feishu-claudecode
+
+# Switch to the service user
+su - claudebot
+cd /path/to/feishu-claudecode
+npm run dev
+```
+
+**Solution 2: Environment Variables**
+
+Make sure your `.env` file contains the ANTHROPIC authentication variables:
+```bash
+# Add these to your .env file (not just .bashrc)
+ANTHROPIC_AUTH_TOKEN=sk-your-token-here
+ANTHROPIC_BASE_URL=https://api.anthropic.com  # or your custom base URL
+```
+
+Note: Environment variables in `~/.bashrc` are only loaded for interactive shells and won't be available to the Node.js child process. Always put them in the `.env` file.
+
 ---
 
 <a id="中文"></a>
@@ -474,6 +510,35 @@ AUTHORIZED_USER_IDS=ou_xxxx1,ou_xxxx2
 **Q: Claude 执行超时了怎么办？**
 
 默认 10 分钟超时。如果任务确实需要更长时间，可以拆分为多个小任务。也可以用 `/stop` 手动中止后重试。
+
+**Q: 报错 "Claude Code process exited with code 1" 怎么办？**
+
+如果你以 root 用户身份运行服务，可能会遇到这个错误。这是 Claude Code CLI 的安全限制。
+
+**解决方案 1：使用非 root 用户运行（推荐）**
+```bash
+# 创建专用服务用户
+useradd -r -s /bin/bash -d /home/claudebot claudebot
+
+# 修改目录所有权
+chown -R claudebot:claudebot /path/to/feishu-claudecode
+
+# 切换到服务用户
+su - claudebot
+cd /path/to/feishu-claudecode
+npm run dev
+```
+
+**解决方案 2：检查环境变量**
+
+确保 `.env` 文件中包含 ANTHROPIC 认证变量：
+```bash
+# 添加到 .env 文件（不要只放在 .bashrc）
+ANTHROPIC_AUTH_TOKEN=sk-your-token-here
+ANTHROPIC_BASE_URL=https://api.anthropic.com  # 或你的自定义 API 地址
+```
+
+注意：`~/.bashrc` 中的环境变量只在交互式 shell 中加载，Node.js 子进程无法访问。必须写入 `.env` 文件。
 
 ---
 
