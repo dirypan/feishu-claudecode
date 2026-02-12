@@ -91,20 +91,6 @@ The bot loads MCP servers based on the working directory set via `/cd`.
 
 All config is via environment variables in `.env` (see `.env.example`). Required: `FEISHU_APP_ID`, `FEISHU_APP_SECRET`. The Feishu app must have bot capability, WebSocket event mode, and `im.message.receive_v1` event subscription.
 
-## Testing
-
-### File Transfer Test
-
-When a user sends the message "File transfer test", you should:
-1. Use the `sendFileFromPath()` method from MessageSender to send the test file
-2. The test file is located at: `/home/admin/feishu-claudecode/test-file-transfer.txt`
-3. This tests the bot's ability to upload and send files back to Feishu
-
-Example code pattern:
-```typescript
-await this.sender.sendFileFromPath(chatId, '/home/admin/feishu-claudecode/test-file-transfer.txt');
-```
-
 ## Sending Files to Users
 
 When users request files (e.g., "send me the file", "can I download that?"), you can send files back to Feishu:
