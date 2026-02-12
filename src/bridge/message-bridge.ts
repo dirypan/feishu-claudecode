@@ -48,12 +48,13 @@ export class MessageBridge {
   }
 
   async handleMessage(msg: IncomingMessage): Promise<void> {
-    const { userId, chatId, text } = msg;
+    const { userId, chatId } = msg;
+    const text = msg.text.trim(); // Always trim input text
 
     // Check if waiting for continue response
     const task = this.runningTasks.get(chatId);
     if (task?.waitingForContinue) {
-      const response = text.trim().toLowerCase();
+      const response = text.toLowerCase();
       if (response === 'yes' || response === 'y') {
         task.waitingForContinue.resolve(true);
         return;
@@ -70,7 +71,7 @@ export class MessageBridge {
     }
 
     // Handle file transfer test
-    if (text.trim().toLowerCase() === 'file transfer test') {
+    if (text.toLowerCase() === 'file transfer test') {
       const testFilePath = '/home/admin/feishu-claudecode/test-file-transfer.txt';
       const success = await this.sender.sendFileFromPath(chatId, testFilePath);
       if (success) {
@@ -121,6 +122,8 @@ export class MessageBridge {
     const { userId, chatId, text } = msg;
     const [cmd, ...args] = text.split(/\s+/);
     const arg = args.join(' ').trim();
+
+    this.logger.info({ userId, chatId, cmd, arg }, 'Processing command');
 
     switch (cmd.toLowerCase()) {
       case '/help':
@@ -181,6 +184,48 @@ export class MessageBridge {
           buildTextCard('✅ System Prompt Reset', 'System prompt reset to default from configuration.', 'green'),
         );
         break;
+
+      case '/show-system-prompt': {
+        const session = this.sessionManager.getSession(chatId);
+        const effectivePrompt = session.systemPrompt !== undefined
+          ? session.systemPrompt
+          : this.config.claude.systemPrompt;
+
+        if (!effectivePrompt) {
+          await this.sender.sendCard(
+            chatId,
+            buildTextCard('ℹ️ System Prompt', 'No custom system prompt is set. Using Claude\'s default behavior.', 'blue'),
+          );
+        } else {
+          const truncated = effectivePrompt.length > 2000
+            ? effectivePrompt.substring(0, 2000) + '...(truncated)'
+            : effectivePrompt;
+          const source = session.systemPrompt !== undefined ? '**Custom**' : '**Default (from config)**';
+          await this.sender.sendCard(
+            chatId,
+            buildTextCard('ℹ️ Current System Prompt', `${source}\n\n\`\`\`\n${truncated}\n\`\`\``, 'blue'),
+          );
+        }
+        break;
+      }
+
+      case '/set-system-prompt': {
+        if (!arg) {
+          await this.sender.sendCard(
+            chatId,
+            buildTextCard('⚠️ Usage', '`/set-system-prompt <your custom prompt>`\n\nExample:\n`/set-system-prompt You are a helpful coding assistant. Always explain your reasoning.`', 'orange'),
+          );
+          return;
+        }
+
+        this.sessionManager.setSystemPrompt(chatId, arg);
+        const truncated = arg.length > 200 ? arg.substring(0, 200) + '...' : arg;
+        await this.sender.sendCard(
+          chatId,
+          buildTextCard('✅ System Prompt Set', `Custom system prompt applied:\n\`\`\`\n${truncated}\n\`\`\``, 'green'),
+        );
+        break;
+      }
 
       case '/stop': {
         const task = this.runningTasks.get(chatId);
@@ -274,7 +319,19 @@ export class MessageBridge {
   }
 
   private async executeQuery(msg: IncomingMessage): Promise<void> {
-    const { userId, chatId, text, imageKey, messageId: msgId } = msg;
+    const { userId, chatId, imageKey, messageId: msgId } = msg;
+    const text = msg.text.trim();
+
+    // Safety check: never pass commands to Claude
+    if (text.startsWith('/')) {
+      this.logger.error({ userId, chatId, text }, 'Command leaked through to executeQuery - this is a bug!');
+      await this.sender.sendCard(
+        chatId,
+        buildTextCard('❌ Internal Error', 'Command processing error. Please try again.', 'red'),
+      );
+      return;
+    }
+
     const session = this.sessionManager.getSession(chatId);
     const cwd = session.workingDirectory!;
     const abortController = new AbortController();

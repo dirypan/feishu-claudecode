@@ -134,6 +134,8 @@ export function buildHelpCard(): string {
           '**Available Commands:**',
           '`/cd /path/to/project` - Set working directory',
           '`/reset` - Clear session, start fresh (keeps working directory)',
+          '`/show-system-prompt` - Display current system prompt',
+          '`/set-system-prompt <text>` - Set custom system prompt',
           '`/reset-system-prompt` - Reset system prompt to default',
           '`/stop` - Abort current running task',
           '`/status` - Show current session and directory info',
