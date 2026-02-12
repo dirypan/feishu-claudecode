@@ -22,6 +22,7 @@ A bridge service connecting Feishu (Lark) Bot to Claude Code CLI. Chat with Clau
 - **Multi-user parallel** - Independent sessions and working directories per chat (each group/DM has its own session)
 - **Multi-turn conversations** - Automatic context persistence across messages
 - **Image support** - Send images to Claude for analysis; Claude-generated images are sent back
+- **File support** - Upload files to Claude or quote files in group chats; Claude can read and process them
 - **MCP integration** - Automatically loads MCP server configs from Claude Code settings
 - **Status cards** - Color-coded status, tool call tracking, cost/duration stats
 
@@ -101,6 +102,25 @@ npm run build && npm start
 **Receive images from Claude:** When Claude generates or writes image files (via Write tool, Bash, or MCP tools), they are automatically uploaded and sent back to Feishu.
 
 Supported formats: PNG, JPEG, GIF, WEBP, BMP, SVG, TIFF (max 10MB per Feishu limit).
+
+### File Support
+
+**Upload files directly:** Send any file to the bot (txt, pdf, csv, zip, etc.) and Claude can read and process it. Files are saved to the working directory with their original filenames.
+
+**Quote files in group chats:** In group chats, you can upload a file first (bot ignores it), then quote/reply to that file message with @mention and instructions. The bot will download the quoted file and process it.
+
+**Example workflow:**
+1. User A uploads `data.csv` to group chat (no @mention)
+2. User B quotes the file message: `@bot analyze this data`
+3. Bot downloads `data.csv` and Claude processes it
+
+Supported formats: All file types (max 30MB per Feishu limit).
+
+**Visual indicators:**
+- `📎` - Direct file attachment
+- `🔗📎` - Quoted/replied file
+- `🖼️` - Direct image attachment
+- `🔗🖼️` - Quoted/replied image
 
 ### MCP Server Configuration
 
@@ -203,6 +223,7 @@ Note: Environment variables in `~/.bashrc` are only loaded for interactive shell
 - **多用户并行** - 每个会话（群聊/私聊）独立会话和工作目录，互不干扰
 - **多轮对话** - 自动维护对话上下文，支持连续交互
 - **图片支持** - 发图片给 Claude 分析；Claude 生成的图片自动回传飞书
+- **文件支持** - 上传文件给 Claude 或在群聊中引用文件；Claude 可以读取和处理文件
 - **MCP 集成** - 自动加载 Claude Code 配置文件中的 MCP 服务器
 - **状态卡片** - 颜色标识状态、工具调用追踪、费用/耗时统计
 
@@ -421,6 +442,25 @@ Bot：✅ Session Reset - 开始新对话
 **接收 Claude 生成的图片：** 当 Claude 通过工具（Write、Bash、MCP 等）生成图片文件时，图片会自动上传并发送到飞书聊天中。
 
 支持格式：PNG、JPEG、GIF、WEBP、BMP、SVG、TIFF（单张最大 10MB，飞书限制）。
+
+### 文件支持
+
+**直接上传文件：** 向机器人发送任意类型的文件（txt、pdf、csv、zip 等），Claude 可以读取和处理。文件会保存到工作目录并保持原文件名。
+
+**群聊中引用文件：** 在群聊中，可以先上传文件（不 @ 机器人），然后引用/回复该文件消息并 @ 机器人附上指令。机器人会下载被引用的文件并处理。
+
+**使用示例：**
+1. 用户 A 在群里上传 `data.csv`（不 @ 机器人）
+2. 用户 B 引用该文件消息：`@机器人 分析这个数据`
+3. 机器人下载 `data.csv` 并由 Claude 处理
+
+支持格式：所有文件类型（单个最大 30MB，飞书限制）。
+
+**视觉标识：**
+- `📎` - 直接附件
+- `🔗📎` - 引用/回复的文件
+- `🖼️` - 直接图片
+- `🔗🖼️` - 引用/回复的图片
 
 ---
 

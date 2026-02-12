@@ -9,6 +9,9 @@ export interface IncomingMessage {
   userId: string;
   text: string;
   imageKey?: string;
+  fileKey?: string;
+  fileName?: string;
+  quotedMessageId?: string;
 }
 
 export type MessageHandler = (msg: IncomingMessage) => void;
@@ -39,8 +42,8 @@ export function createEventDispatcher(
 
         const msgType = message.message_type;
 
-        // Only handle text, post (rich text), and image messages
-        if (msgType !== 'text' && msgType !== 'post' && msgType !== 'image') {
+        // Only handle text, post (rich text), image, and file messages
+        if (msgType !== 'text' && msgType !== 'post' && msgType !== 'image' && msgType !== 'file') {
           logger.debug({ type: msgType }, 'Ignoring unsupported message type');
           return;
         }
@@ -54,6 +57,7 @@ export function createEventDispatcher(
         const chatId = message.chat_id;
         const chatType = message.chat_type;
         const messageId = message.message_id;
+        const quotedMessageId = message.parent_id; // Extract quoted/replied message ID
 
         // Authorization check
         if (!isAuthorized(config, userId, chatId)) {
@@ -82,8 +86,26 @@ export function createEventDispatcher(
 
         let text = '';
         let imageKey: string | undefined;
+        let fileKey: string | undefined;
+        let fileName: string | undefined;
 
-        if (msgType === 'image') {
+        if (msgType === 'file') {
+          // File message: extract file_key and file_name
+          try {
+            const content = JSON.parse(message.content);
+            fileKey = content.file_key;
+            fileName = content.file_name || 'unknown';
+          } catch {
+            logger.warn('Failed to parse file message content');
+            return;
+          }
+          if (!fileKey) {
+            logger.warn('File message missing file_key');
+            return;
+          }
+          text = `[User uploaded file: ${fileName}]`;
+          logger.info({ userId, chatId, chatType, fileKey, fileName }, 'Received file message');
+        } else if (msgType === 'image') {
           // Image message: extract image_key
           try {
             const content = JSON.parse(message.content);
@@ -136,7 +158,7 @@ export function createEventDispatcher(
           logger.info({ userId, chatId, chatType, text: text.slice(0, 100) }, 'Received message');
         }
 
-        onMessage({ messageId, chatId, chatType, userId, text, imageKey });
+        onMessage({ messageId, chatId, chatType, userId, text, imageKey, fileKey, fileName, quotedMessageId });
       } catch (err) {
         logger.error({ err }, 'Error handling message event');
       }

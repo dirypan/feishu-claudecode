@@ -165,4 +165,77 @@ export class MessageSender {
     await this.sendFile(chatId, fileKey);
     return true;
   }
+
+  async downloadFile(messageId: string, fileKey: string, savePath: string): Promise<boolean> {
+    try {
+      const resp = await this.client.im.v1.messageResource.get({
+        path: { message_id: messageId, file_key: fileKey },
+        params: { type: 'file' },
+      });
+
+      if (resp) {
+        await (resp as any).writeFile(savePath);
+        this.logger.info({ messageId, fileKey, savePath }, 'File downloaded');
+        return true;
+      }
+      this.logger.error({ messageId, fileKey }, 'Empty response when downloading file');
+      return false;
+    } catch (err) {
+      this.logger.error({ err, messageId, fileKey }, 'Failed to download file');
+      return false;
+    }
+  }
+
+  async getQuotedMessage(messageId: string): Promise<{ fileKey?: string; fileName?: string; imageKey?: string } | null> {
+    try {
+      const resp = await this.client.im.v1.message.get({
+        path: { message_id: messageId },
+      });
+
+      if (!resp || !resp.data) {
+        this.logger.error({ messageId }, 'Empty response when fetching quoted message');
+        return null;
+      }
+
+      // Feishu API returns { items: [...] } structure
+      const data = resp.data as any;
+      const items = data.items;
+
+      if (!items || items.length === 0) {
+        this.logger.error({ messageId }, 'No items in quoted message response');
+        return null;
+      }
+
+      const msg = items[0]; // Get first item
+      const msgType = msg.msg_type;
+      const content = msg.body?.content;
+
+      if (!content) {
+        this.logger.warn({ messageId }, 'No content in quoted message');
+        return null;
+      }
+
+      try {
+        const parsed = JSON.parse(content);
+
+        if (msgType === 'file') {
+          return {
+            fileKey: parsed.file_key,
+            fileName: parsed.file_name || 'unknown',
+          };
+        } else if (msgType === 'image') {
+          return {
+            imageKey: parsed.image_key,
+          };
+        }
+      } catch {
+        this.logger.warn({ messageId }, 'Failed to parse quoted message content');
+      }
+
+      return null;
+    } catch (err) {
+      this.logger.error({ err, messageId }, 'Failed to fetch quoted message');
+      return null;
+    }
+  }
 }

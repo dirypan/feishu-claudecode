@@ -374,7 +374,7 @@ export class MessageBridge {
   }
 
   private async executeQuery(msg: IncomingMessage): Promise<void> {
-    const { userId, chatId, imageKey, messageId: msgId } = msg;
+    const { userId, chatId, imageKey, fileKey, fileName, quotedMessageId, messageId: msgId } = msg;
     const text = msg.text.trim();
 
     // Safety check: never pass commands to Claude
@@ -400,23 +400,67 @@ export class MessageBridge {
       abortController.abort();
     }, TASK_TIMEOUT_MS);
 
-    // Handle image download if present
-    let prompt = text;
-    let imagePath: string | undefined;
-    if (imageKey) {
-      const tmpDir = path.join(os.tmpdir(), 'feishu-claudecode');
-      fs.mkdirSync(tmpDir, { recursive: true });
-      imagePath = path.join(tmpDir, `${imageKey}.png`);
-      const ok = await this.sender.downloadImage(msgId, imageKey, imagePath);
-      if (ok) {
-        prompt = `${text}\n\n[Image saved at: ${imagePath}]\nPlease use the Read tool to read and analyze this image file.`;
-      } else {
-        prompt = `${text}\n\n(Note: Failed to download the image from Feishu)`;
+    // Check for quoted message and extract file/image from it
+    let quotedFileKey: string | undefined;
+    let quotedFileName: string | undefined;
+    let quotedImageKey: string | undefined;
+
+    if (quotedMessageId) {
+      const quotedMsg = await this.sender.getQuotedMessage(quotedMessageId);
+      if (quotedMsg) {
+        quotedFileKey = quotedMsg.fileKey;
+        quotedFileName = quotedMsg.fileName;
+        quotedImageKey = quotedMsg.imageKey;
+        this.logger.info({ quotedMessageId, quotedFileKey, quotedFileName, quotedImageKey }, 'Extracted quoted message content');
       }
     }
 
+    // Handle file download (from current message or quoted message)
+    let prompt = text;
+    let tempFilePath: string | undefined;
+
+    const effectiveFileKey = fileKey || quotedFileKey;
+    const effectiveFileName = fileName || quotedFileName;
+
+    if (effectiveFileKey && effectiveFileName) {
+      // Download file to working directory
+      const filePath = path.join(cwd, effectiveFileName);
+      const sourceMessageId = fileKey ? msgId : quotedMessageId!;
+      const ok = await this.sender.downloadFile(sourceMessageId, effectiveFileKey, filePath);
+      if (ok) {
+        const prefix = quotedFileKey ? '[Quoted file downloaded]' : '';
+        prompt = `${prefix}\n\nA file has been uploaded and saved at: ${filePath}\n\nUser instruction: ${text}\n\nYou can read the file using the Read tool.`;
+        this.logger.info({ chatId, effectiveFileName, filePath, isQuoted: !!quotedFileKey }, 'File downloaded to working directory');
+      } else {
+        prompt = `${text}\n\n(Note: Failed to download the file from Feishu)`;
+      }
+    }
+
+    // Handle image download (from current message or quoted message)
+    const effectiveImageKey = imageKey || quotedImageKey;
+
+    if (effectiveImageKey) {
+      const tmpDir = path.join(os.tmpdir(), 'feishu-claudecode');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const imagePath = path.join(tmpDir, `${effectiveImageKey}.png`);
+      const sourceMessageId = imageKey ? msgId : quotedMessageId!;
+      const ok = await this.sender.downloadImage(sourceMessageId, effectiveImageKey, imagePath);
+      if (ok) {
+        const prefix = quotedImageKey ? '[Quoted image downloaded]' : '';
+        prompt = `${prefix}\n\n[Image saved at: ${imagePath}]\n\nUser instruction: ${text}\n\nPlease use the Read tool to read and analyze this image file.`;
+      } else {
+        prompt = `${text}\n\n(Note: Failed to download the image from Feishu)`;
+      }
+      tempFilePath = imagePath; // Mark for cleanup
+    }
+
     // Send initial "thinking" card
-    const displayPrompt = imageKey ? '🖼️ ' + text : text;
+    let displayPrompt = text;
+    if (effectiveImageKey) {
+      displayPrompt = (quotedImageKey ? '🔗🖼️ ' : '🖼️ ') + text;
+    } else if (effectiveFileKey && effectiveFileName) {
+      displayPrompt = (quotedFileKey ? '🔗📎 ' : '📎 ') + text + ` [${effectiveFileName}]`;
+    }
     const processor = new StreamProcessor(displayPrompt);
     const initialState: CardState = {
       status: 'thinking',
@@ -471,11 +515,11 @@ export class MessageBridge {
 
       // Check if max turns reached and ask user to continue
       if (lastState.status === 'error' && lastState.errorMessage?.includes('error_max_turns')) {
-        const shouldContinue = await this.askToContinue(chatId, messageId, lastState, processor, displayPrompt, imagePath);
+        const shouldContinue = await this.askToContinue(chatId, messageId, lastState, processor, displayPrompt, tempFilePath);
 
         if (shouldContinue) {
           // Continue execution with increased turns
-          await this.continueExecution(chatId, messageId, session, abortController, rateLimiter, processor, displayPrompt, imagePath);
+          await this.continueExecution(chatId, messageId, session, abortController, rateLimiter, processor, displayPrompt, tempFilePath);
           return; // Exit early, cleanup handled in continueExecution
         }
       }
@@ -500,9 +544,9 @@ export class MessageBridge {
     } finally {
       clearTimeout(timeoutId);
       this.runningTasks.delete(chatId);
-      // Cleanup temp image
-      if (imagePath) {
-        try { fs.unlinkSync(imagePath); } catch { /* ignore */ }
+      // Cleanup temp files (only cleanup images, files are saved to working directory)
+      if (tempFilePath) {
+        try { fs.unlinkSync(tempFilePath); } catch { /* ignore */ }
       }
     }
   }
@@ -662,10 +706,8 @@ export class MessageBridge {
       await this.sender.updateCard(messageId, buildCard(errorState));
     } finally {
       this.runningTasks.delete(chatId);
-      // Cleanup temp image
-      if (imagePath) {
-        try { fs.unlinkSync(imagePath); } catch { /* ignore */ }
-      }
+      // Cleanup temp files (only cleanup images from temp directory)
+      // Files uploaded by users are saved to working directory and not cleaned up
     }
   }
 
