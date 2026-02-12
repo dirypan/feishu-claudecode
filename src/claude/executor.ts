@@ -7,6 +7,7 @@ export interface ExecutorOptions {
   cwd: string;
   sessionId?: string;
   systemPrompt?: string;
+  model?: string;
   abortController: AbortController;
 }
 
@@ -57,7 +58,7 @@ export class ClaudeExecutor {
   ) {}
 
   async *execute(options: ExecutorOptions): AsyncGenerator<SDKMessage> {
-    const { prompt, cwd, sessionId, systemPrompt, abortController } = options;
+    const { prompt, cwd, sessionId, systemPrompt, model, abortController } = options;
 
     this.logger.info({ cwd, hasSession: !!sessionId }, 'Starting Claude execution');
 
@@ -75,8 +76,10 @@ export class ClaudeExecutor {
       settingSources: ['user', 'project'],
     };
 
-    if (this.config.claude.model) {
-      queryOptions.model = this.config.claude.model;
+    // Priority: session model > config model > SDK default
+    const effectiveModel = model || this.config.claude.model;
+    if (effectiveModel) {
+      queryOptions.model = effectiveModel;
     }
 
     // Use session-level system prompt if provided, otherwise use config default

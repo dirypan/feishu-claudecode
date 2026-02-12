@@ -17,6 +17,7 @@ import { ClaudeExecutor } from '../claude/executor.js';
 import { StreamProcessor, extractImagePaths } from '../claude/stream-processor.js';
 import { SessionManager, type UserSession } from '../claude/session-manager.js';
 import { RateLimiter } from './rate-limiter.js';
+import { AVAILABLE_MODELS, isValidModel, getModelInfo } from '../claude/models.js';
 
 const TASK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -250,7 +251,7 @@ export class MessageBridge {
         const isRunning = this.runningTasks.has(chatId);
         await this.sender.sendCard(
           chatId,
-          buildStatusCard(userId, session.workingDirectory, session.sessionId, isRunning),
+          buildStatusCard(userId, session.workingDirectory, session.sessionId, isRunning, session.model),
         );
         break;
       }
@@ -362,6 +363,61 @@ export class MessageBridge {
             buildTextCard('❌ Error', `Path not found: \`${resolvedPath}\``, 'red'),
           );
         }
+        break;
+      }
+
+      case '/list-models': {
+        const session = this.sessionManager.getSession(chatId);
+        const currentModel = session.model || this.config.claude.model || 'claude-sonnet-4-5 (SDK default)';
+
+        let modelList = `**Current model:** \`${currentModel}\`\n\n**Available models:**\n\n`;
+        for (const model of AVAILABLE_MODELS) {
+          const marker = (session.model === model.id || (!session.model && this.config.claude.model === model.id)) ? '✓ ' : '  ';
+          modelList += `${marker}\`${model.id}\`\n  ${model.name} - ${model.description}\n\n`;
+        }
+        modelList += '\nUse `/set-model <model-id>` to change model.';
+
+        await this.sender.sendCard(
+          chatId,
+          buildTextCard('📋 Available Models', modelList, 'blue'),
+        );
+        break;
+      }
+
+      case '/set-model': {
+        if (!arg) {
+          await this.sender.sendCard(
+            chatId,
+            buildTextCard('⚠️ Usage', '`/set-model <model-id>`\n\nUse `/list-models` to see available models.', 'orange'),
+          );
+          return;
+        }
+
+        // Allow "default" or "reset" to clear model override
+        if (arg === 'default' || arg === 'reset') {
+          this.sessionManager.setModel(chatId, undefined);
+          const defaultModel = this.config.claude.model || 'claude-sonnet-4-5 (SDK default)';
+          await this.sender.sendCard(
+            chatId,
+            buildTextCard('✅ Model Reset', `Using default model: \`${defaultModel}\``, 'green'),
+          );
+          return;
+        }
+
+        if (!isValidModel(arg)) {
+          await this.sender.sendCard(
+            chatId,
+            buildTextCard('❌ Invalid Model', `Unknown model: \`${arg}\`\n\nUse \`/list-models\` to see available models.`, 'red'),
+          );
+          return;
+        }
+
+        this.sessionManager.setModel(chatId, arg);
+        const modelInfo = getModelInfo(arg);
+        await this.sender.sendCard(
+          chatId,
+          buildTextCard('✅ Model Set', `Now using: **${modelInfo!.name}**\n\`${arg}\`\n\n${modelInfo!.description}`, 'green'),
+        );
         break;
       }
 
@@ -487,6 +543,7 @@ export class MessageBridge {
         cwd,
         sessionId: session.sessionId,
         systemPrompt: session.systemPrompt,
+        model: session.model,
         abortController,
       });
 
@@ -650,6 +707,7 @@ export class MessageBridge {
         cwd: session.workingDirectory!,
         sessionId: session.sessionId,
         systemPrompt: session.systemPrompt,
+        model: session.model,
         abortController,
       });
 

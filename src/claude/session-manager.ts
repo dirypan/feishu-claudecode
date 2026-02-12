@@ -4,6 +4,7 @@ export interface UserSession {
   sessionId: string | undefined;
   workingDirectory: string | undefined;
   systemPrompt: string | undefined;
+  model: string | undefined;
   lastUsed: number;
 }
 
@@ -28,6 +29,7 @@ export class SessionManager {
         sessionId: undefined,
         workingDirectory: this.defaultWorkingDirectory,
         systemPrompt: undefined,
+        model: undefined,
         lastUsed: Date.now(),
       };
       this.sessions.set(chatId, session);
@@ -66,6 +68,12 @@ export class SessionManager {
     const session = this.getSession(chatId);
     session.systemPrompt = systemPrompt;
     this.logger.info({ chatId, hasPrompt: !!systemPrompt }, 'System prompt updated');
+  }
+
+  setModel(chatId: string, model: string | undefined): void {
+    const session = this.getSession(chatId);
+    session.model = model;
+    this.logger.info({ chatId, model }, 'Model updated');
   }
 
   hasWorkingDirectory(chatId: string): boolean {

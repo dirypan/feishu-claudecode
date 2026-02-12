@@ -90,6 +90,8 @@ npm run build && npm start
 |---------|-------------|
 | `/cd /path/to/project` | Set working directory (required before first use) |
 | `/reset` | Clear session, start fresh (keeps working directory) |
+| `/list-models` | List available Claude models and show current model |
+| `/set-model <model-id>` | Set Claude model for current session |
 | `/stop` | Abort current running task |
 | `/status` | Show current session info |
 | `/send-file /path/to/file` | Send a file to the chat (max 30MB) |
@@ -389,6 +391,8 @@ npm start
 |------|------|
 | `/cd /path/to/project` | 设置工作目录（首次使用必须先设置） |
 | `/reset` | 清除对话历史，重新开始（保留工作目录设置） |
+| `/list-models` | 列出可用的 Claude 模型并显示当前模型 |
+| `/set-model <model-id>` | 设置当前会话的 Claude 模型 |
 | `/stop` | 中止当前正在执行的任务 |
 | `/status` | 查看当前会话状态和工作目录 |
 | `/send-file /path/to/file` | 发送文件到聊天（最大 30MB） |

@@ -31,7 +31,7 @@ Feishu WSClient → EventHandler (auth, parse, @mention filter) → MessageBridg
 - **`src/index.ts`** — Entrypoint. Creates Feishu WS client, fetches bot info for @mention detection, wires up the event dispatcher and bridge, handles graceful shutdown.
 - **`src/config.ts`** — Loads all config from env vars (`.env` via dotenv). `Config` interface is the central type.
 - **`src/feishu/event-handler.ts`** — Registers `im.message.receive_v1` on the Lark `EventDispatcher`. Handles auth checks, text/image parsing, @mention stripping, group chat filtering (only responds when @mentioned). Exports `IncomingMessage` type.
-- **`src/bridge/message-bridge.ts`** — Core orchestrator. Routes commands (`/cd`, `/reset`, `/stop`, `/status`, `/send-file`, `/help`), manages running tasks per chat (one task at a time per `chatId`), executes Claude queries with streaming card updates, handles image input/output, enforces 30-minute timeout.
+- **`src/bridge/message-bridge.ts`** — Core orchestrator. Routes commands (`/cd`, `/reset`, `/stop`, `/status`, `/send-file`, `/list-models`, `/set-model`, `/help`), manages running tasks per chat (one task at a time per `chatId`), executes Claude queries with streaming card updates, handles image input/output, enforces 30-minute timeout.
 - **`src/claude/executor.ts`** — Wraps `query()` from the Agent SDK as an async generator yielding `SDKMessage`. Configures permissionMode, allowedTools, MCP settings, session resume.
 - **`src/claude/stream-processor.ts`** — Transforms the raw SDK message stream into `CardState` objects for display. Tracks tool calls, response text, session ID, cost/duration. Also extracts image file paths from tool outputs.
 - **`src/claude/session-manager.ts`** — In-memory sessions keyed by `chatId`. Each session has a working directory and Claude session ID. Sessions expire after 24 hours. Changing working directory resets the session.
@@ -101,6 +101,35 @@ MCP servers are loaded from Claude Code's standard config files:
 - Per-project: `<working-directory>/.claude/settings.json`
 
 The bot loads MCP servers based on the working directory set via `/cd`.
+
+### Model Management
+
+Users can dynamically select which Claude model to use for their session:
+
+**List available models:**
+```
+/list-models
+```
+
+Shows all available models with descriptions and marks the current model:
+- claude-opus-4-6 (Most capable model)
+- claude-sonnet-4-5 (Balanced performance, recommended)
+- claude-haiku-3-5 (Fastest, good for simple tasks)
+- Plus older versions (3.5 Sonnet, 3.5 Haiku, 3 Opus)
+
+**Set model for current session:**
+```
+/set-model claude-haiku-3-5
+```
+
+Each chat session can use a different model. Model selection persists across messages within the same session.
+
+**Reset to default:**
+```
+/set-model default
+```
+
+Model priority: Session model > Config model (`CLAUDE_MODEL` env var) > SDK default (claude-sonnet-4-5)
 
 ## Configuration
 

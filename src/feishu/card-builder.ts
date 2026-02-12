@@ -137,6 +137,8 @@ export function buildHelpCard(): string {
           '`/show-system-prompt` - Display current system prompt',
           '`/set-system-prompt <text>` - Set custom system prompt',
           '`/reset-system-prompt` - Reset system prompt to default',
+          '`/list-models` - List available Claude models',
+          '`/set-model <model-id>` - Set Claude model for current session',
           '`/stop` - Abort current running task',
           '`/status` - Show current session and directory info',
           '`/send-file /path/to/file-or-folder` - Send file or compressed folder',
@@ -145,7 +147,7 @@ export function buildHelpCard(): string {
           '**Usage:**',
           'Send any text message to start a conversation with Claude Code.',
           'Claude will execute in the working directory you set with `/cd`.',
-          'Each user has an independent session and working directory.',
+          'Each chat has an independent session, working directory, and model.',
         ].join('\n'),
       },
     ],
@@ -158,6 +160,7 @@ export function buildStatusCard(
   workingDirectory: string | undefined,
   sessionId: string | undefined,
   isRunning: boolean,
+  model: string | undefined,
 ): string {
   const card = {
     config: { wide_screen_mode: true },
@@ -175,6 +178,7 @@ export function buildStatusCard(
           `**User:** \`${userId}\``,
           `**Working Directory:** ${workingDirectory ? `\`${workingDirectory}\`` : '_Not set (use /cd to set)_'}`,
           `**Session:** ${sessionId ? `\`${sessionId.slice(0, 8)}...\`` : '_None_'}`,
+          `**Model:** ${model ? `\`${model}\`` : '_Default (use /list-models to see options)_'}`,
           `**Running:** ${isRunning ? 'Yes ⏳' : 'No'}`,
         ].join('\n'),
       },
