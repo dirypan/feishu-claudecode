@@ -3,6 +3,7 @@ import type { Logger } from '../utils/logger.js';
 export interface UserSession {
   sessionId: string | undefined;
   workingDirectory: string | undefined;
+  systemPrompt: string | undefined;
   lastUsed: number;
 }
 
@@ -26,6 +27,7 @@ export class SessionManager {
       session = {
         sessionId: undefined,
         workingDirectory: this.defaultWorkingDirectory,
+        systemPrompt: undefined,
         lastUsed: Date.now(),
       };
       this.sessions.set(chatId, session);
@@ -55,9 +57,15 @@ export class SessionManager {
     const session = this.sessions.get(chatId);
     if (session) {
       session.sessionId = undefined;
-      // Keep working directory
+      // Keep working directory and system prompt
       this.logger.info({ chatId }, 'Session reset');
     }
+  }
+
+  setSystemPrompt(chatId: string, systemPrompt: string | undefined): void {
+    const session = this.getSession(chatId);
+    session.systemPrompt = systemPrompt;
+    this.logger.info({ chatId, hasPrompt: !!systemPrompt }, 'System prompt updated');
   }
 
   hasWorkingDirectory(chatId: string): boolean {

@@ -23,7 +23,7 @@ const STATUS_CONFIG: Record<CardStatus, { color: string; title: string; icon: st
   error: { color: 'red', title: 'Error', icon: '🔴' },
 };
 
-const MAX_CONTENT_LENGTH = 28000;
+const MAX_CONTENT_LENGTH = 50000; // Increased from 28KB to 50KB for longer responses
 
 function truncateContent(text: string): string {
   if (text.length <= MAX_CONTENT_LENGTH) return text;
@@ -39,12 +39,19 @@ export function buildCard(state: CardState): string {
   const config = STATUS_CONFIG[state.status];
   const elements: unknown[] = [];
 
-  // Tool calls section
+  // Tool calls section (show only latest 20)
   if (state.toolCalls.length > 0) {
-    const toolLines = state.toolCalls.map((t) => {
+    const recentToolCalls = state.toolCalls.slice(-20);
+    const toolLines = recentToolCalls.map((t) => {
       const icon = t.status === 'running' ? '⏳' : '✅';
       return `${icon} **${t.name}** ${t.detail}`;
     });
+
+    // Add indicator if there are more tool calls
+    if (state.toolCalls.length > 20) {
+      toolLines.unshift(`_... (${state.toolCalls.length - 20} earlier tool calls hidden)_`);
+    }
+
     elements.push({
       tag: 'markdown',
       content: toolLines.join('\n'),
@@ -127,8 +134,10 @@ export function buildHelpCard(): string {
           '**Available Commands:**',
           '`/cd /path/to/project` - Set working directory',
           '`/reset` - Clear session, start fresh (keeps working directory)',
+          '`/reset-system-prompt` - Reset system prompt to default',
           '`/stop` - Abort current running task',
           '`/status` - Show current session and directory info',
+          '`/send-file /path/to/file` - Send a file to this chat',
           '`/help` - Show this help message',
           '',
           '**Usage:**',
@@ -186,6 +195,26 @@ export function buildTextCard(title: string, content: string, color: string = 'b
       {
         tag: 'markdown',
         content,
+      },
+    ],
+  };
+  return JSON.stringify(card);
+}
+
+export function buildContinueCard(currentTurns: number): string {
+  const card = {
+    config: { wide_screen_mode: true },
+    header: {
+      template: 'orange',
+      title: {
+        content: '⚠️ Max Turns Reached',
+        tag: 'plain_text',
+      },
+    },
+    elements: [
+      {
+        tag: 'markdown',
+        content: `Claude has reached the maximum turn limit (${currentTurns} turns).\n\nDo you want to continue execution?\n\nReply with **yes** or **no**.`,
       },
     ],
   };

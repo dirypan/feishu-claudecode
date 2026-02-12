@@ -116,4 +116,53 @@ export class MessageSender {
       this.logger.error({ err, chatId }, 'Failed to send text');
     }
   }
+
+  async uploadFile(filePath: string): Promise<string | undefined> {
+    try {
+      // Check file size (Feishu limit: 30MB)
+      const stats = fs.statSync(filePath);
+      if (stats.size > 30 * 1024 * 1024) {
+        this.logger.error({ filePath, size: stats.size }, 'File too large (max 30MB)');
+        return undefined;
+      }
+
+      const resp = await this.client.im.v1.file.create({
+        data: {
+          file_type: 'stream',
+          file_name: filePath.split('/').pop() || 'file',
+          file: fs.createReadStream(filePath),
+        },
+      });
+      const fileKey = resp?.file_key;
+      if (fileKey) {
+        this.logger.info({ filePath, fileKey }, 'File uploaded to Feishu');
+      }
+      return fileKey;
+    } catch (err) {
+      this.logger.error({ err, filePath }, 'Failed to upload file');
+      return undefined;
+    }
+  }
+
+  async sendFile(chatId: string, fileKey: string): Promise<void> {
+    try {
+      await this.client.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          content: JSON.stringify({ file_key: fileKey }),
+          msg_type: 'file',
+        },
+      });
+    } catch (err) {
+      this.logger.error({ err, chatId, fileKey }, 'Failed to send file');
+    }
+  }
+
+  async sendFileFromPath(chatId: string, filePath: string): Promise<boolean> {
+    const fileKey = await this.uploadFile(filePath);
+    if (!fileKey) return false;
+    await this.sendFile(chatId, fileKey);
+    return true;
+  }
 }

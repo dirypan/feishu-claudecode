@@ -15,6 +15,7 @@ export interface Config {
     maxTurns: number;
     maxBudgetUsd: number;
     model: string | undefined;
+    systemPrompt: string | undefined;
   };
   log: {
     level: string;
@@ -52,6 +53,7 @@ export function loadConfig(): Config {
       maxTurns: parseInt(process.env.CLAUDE_MAX_TURNS || '50', 10),
       maxBudgetUsd: parseFloat(process.env.CLAUDE_MAX_BUDGET_USD || '1.0'),
       model: process.env.CLAUDE_MODEL || undefined,
+      systemPrompt: process.env.CLAUDE_SYSTEM_PROMPT || undefined,
     },
     log: {
       level: process.env.LOG_LEVEL || 'info',

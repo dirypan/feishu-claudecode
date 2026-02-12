@@ -122,12 +122,23 @@ export class StreamProcessor {
   }
 
   private addToolCall(name: string, input: unknown): void {
-    // Complete previous tool
-    this.completeCurrentTool();
+    // Check if we already have a running tool with this name (from stream event)
+    const existingTool = this.toolCalls.find(
+      (t) => t.name === name && t.status === 'running' && !t.detail
+    );
 
-    this.currentToolName = name;
-    const detail = formatToolDetail(name, input);
-    this.toolCalls.push({ name, detail, status: 'running' });
+    if (existingTool) {
+      // Update existing tool with full details instead of adding duplicate
+      existingTool.detail = formatToolDetail(name, input);
+      this.currentToolName = name;
+    } else {
+      // Complete previous tool
+      this.completeCurrentTool();
+
+      this.currentToolName = name;
+      const detail = formatToolDetail(name, input);
+      this.toolCalls.push({ name, detail, status: 'running' });
+    }
 
     // Track image file paths from Write tool
     if (name === 'Write' && input && typeof input === 'object') {
@@ -156,6 +167,14 @@ export class StreamProcessor {
 
   getImagePaths(): string[] {
     return [...this._imagePaths];
+  }
+
+  getResponseText(): string {
+    return this.responseText;
+  }
+
+  getToolCalls(): ToolCall[] {
+    return [...this.toolCalls];
   }
 }
 

@@ -41,6 +41,7 @@ A bridge service connecting Feishu (Lark) Bot to Claude Code CLI. Chat with Clau
 4. Go to **Permissions** and enable:
    - `im:message` - Send and receive messages
    - `im:message:readonly` - Read messages
+   - `im:resource` - Read and upload images or other files
 5. Publish the app version and get approval
 
 ### Installation
@@ -90,6 +91,7 @@ npm run build && npm start
 | `/reset` | Clear session, start fresh (keeps working directory) |
 | `/stop` | Abort current running task |
 | `/status` | Show current session info |
+| `/send-file /path/to/file` | Send a file to the chat (max 30MB) |
 | `/help` | Show help message |
 
 ### Image Support
@@ -205,6 +207,7 @@ Feishu User
 2. 搜索并开通以下权限：
    - `im:message` - 获取与发送单聊、群组消息
    - `im:message:readonly` - 读取消息（如已有 `im:message` 可跳过）
+   - `im:resource` - 读取与上传图片或文件
 
 #### 1.6 发布应用
 
@@ -330,6 +333,7 @@ npm start
 | `/reset` | 清除对话历史，重新开始（保留工作目录设置） |
 | `/stop` | 中止当前正在执行的任务 |
 | `/status` | 查看当前会话状态和工作目录 |
+| `/send-file /path/to/file` | 发送文件到聊天（最大 30MB） |
 | `/help` | 显示帮助信息 |
 
 #### 使用示例

@@ -7,6 +7,7 @@ import type { IncomingMessage } from '../feishu/event-handler.js';
 import { MessageSender } from '../feishu/message-sender.js';
 import {
   buildCard,
+  buildContinueCard,
   buildHelpCard,
   buildStatusCard,
   buildTextCard,
@@ -14,14 +15,22 @@ import {
 } from '../feishu/card-builder.js';
 import { ClaudeExecutor } from '../claude/executor.js';
 import { StreamProcessor, extractImagePaths } from '../claude/stream-processor.js';
-import { SessionManager } from '../claude/session-manager.js';
+import { SessionManager, type UserSession } from '../claude/session-manager.js';
 import { RateLimiter } from './rate-limiter.js';
 
-const TASK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const TASK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 interface RunningTask {
   abortController: AbortController;
   startTime: number;
+  waitingForContinue?: {
+    messageId: string;
+    lastState: CardState;
+    processor: StreamProcessor;
+    displayPrompt: string;
+    imagePath?: string;
+    resolve: (shouldContinue: boolean) => void;
+  };
 }
 
 export class MessageBridge {
@@ -40,6 +49,37 @@ export class MessageBridge {
 
   async handleMessage(msg: IncomingMessage): Promise<void> {
     const { userId, chatId, text } = msg;
+
+    // Check if waiting for continue response
+    const task = this.runningTasks.get(chatId);
+    if (task?.waitingForContinue) {
+      const response = text.trim().toLowerCase();
+      if (response === 'yes' || response === 'y') {
+        task.waitingForContinue.resolve(true);
+        return;
+      } else if (response === 'no' || response === 'n') {
+        task.waitingForContinue.resolve(false);
+        return;
+      } else {
+        await this.sender.sendCard(
+          chatId,
+          buildTextCard('⚠️ Invalid Response', 'Please reply with **yes** or **no**.', 'orange'),
+        );
+        return;
+      }
+    }
+
+    // Handle file transfer test
+    if (text.trim().toLowerCase() === 'file transfer test') {
+      const testFilePath = '/home/admin/feishu-claudecode/test-file-transfer.txt';
+      const success = await this.sender.sendFileFromPath(chatId, testFilePath);
+      if (success) {
+        await this.sender.sendText(chatId, '✅ File transfer test successful!');
+      } else {
+        await this.sender.sendText(chatId, '❌ File transfer test failed.');
+      }
+      return;
+    }
 
     // Handle commands
     if (text.startsWith('/')) {
@@ -134,6 +174,14 @@ export class MessageBridge {
         );
         break;
 
+      case '/reset-system-prompt':
+        this.sessionManager.setSystemPrompt(chatId, undefined);
+        await this.sender.sendCard(
+          chatId,
+          buildTextCard('✅ System Prompt Reset', 'System prompt reset to default from configuration.', 'green'),
+        );
+        break;
+
       case '/stop': {
         const task = this.runningTasks.get(chatId);
         if (task) {
@@ -159,6 +207,61 @@ export class MessageBridge {
           chatId,
           buildStatusCard(userId, session.workingDirectory, session.sessionId, isRunning),
         );
+        break;
+      }
+
+      case '/send-file': {
+        if (!arg) {
+          await this.sender.sendCard(
+            chatId,
+            buildTextCard('⚠️ Usage', '`/send-file /path/to/file`', 'orange'),
+          );
+          return;
+        }
+
+        // Expand ~ to home directory
+        const expanded = arg.startsWith('~') ? arg.replace('~', os.homedir()) : arg;
+        const resolvedPath = path.resolve(expanded);
+
+        // Validate file exists
+        try {
+          const stat = fs.statSync(resolvedPath);
+          if (!stat.isFile()) {
+            await this.sender.sendCard(
+              chatId,
+              buildTextCard('❌ Error', `Not a file: \`${resolvedPath}\``, 'red'),
+            );
+            return;
+          }
+
+          // Check file size (30MB limit)
+          if (stat.size > 30 * 1024 * 1024) {
+            await this.sender.sendCard(
+              chatId,
+              buildTextCard('❌ Error', `File too large: ${(stat.size / 1024 / 1024).toFixed(2)}MB (max 30MB)`, 'red'),
+            );
+            return;
+          }
+
+          // Send the file
+          const success = await this.sender.sendFileFromPath(chatId, resolvedPath);
+          if (success) {
+            await this.sender.sendCard(
+              chatId,
+              buildTextCard('✅ File Sent', `\`${resolvedPath}\``, 'green'),
+            );
+          } else {
+            await this.sender.sendCard(
+              chatId,
+              buildTextCard('❌ Error', 'Failed to send file. Check logs for details.', 'red'),
+            );
+          }
+        } catch {
+          await this.sender.sendCard(
+            chatId,
+            buildTextCard('❌ Error', `File not found: \`${resolvedPath}\``, 'red'),
+          );
+        }
         break;
       }
 
@@ -227,6 +330,7 @@ export class MessageBridge {
         prompt,
         cwd,
         sessionId: session.sessionId,
+        systemPrompt: session.systemPrompt,
         abortController,
       });
 
@@ -252,6 +356,17 @@ export class MessageBridge {
 
       // Flush any pending update
       await rateLimiter.flush();
+
+      // Check if max turns reached and ask user to continue
+      if (lastState.status === 'error' && lastState.errorMessage?.includes('error_max_turns')) {
+        const shouldContinue = await this.askToContinue(chatId, messageId, lastState, processor, displayPrompt, imagePath);
+
+        if (shouldContinue) {
+          // Continue execution with increased turns
+          await this.continueExecution(chatId, messageId, session, abortController, rateLimiter, processor, displayPrompt, imagePath);
+          return; // Exit early, cleanup handled in continueExecution
+        }
+      }
 
       // Send final card
       await this.sender.updateCard(messageId, buildCard(lastState));
@@ -307,6 +422,137 @@ export class MessageBridge {
         }
       } catch (err) {
         this.logger.warn({ err, imgPath }, 'Failed to send output image');
+      }
+    }
+  }
+
+  private async askToContinue(
+    chatId: string,
+    messageId: string,
+    lastState: CardState,
+    processor: StreamProcessor,
+    displayPrompt: string,
+    imagePath?: string,
+  ): Promise<boolean> {
+    const task = this.runningTasks.get(chatId);
+    if (!task) return false;
+
+    // Send continue prompt card
+    await this.sender.updateCard(messageId, buildContinueCard(this.config.claude.maxTurns));
+
+    // Wait for user response
+    return new Promise<boolean>((resolve) => {
+      task.waitingForContinue = {
+        messageId,
+        lastState,
+        processor,
+        displayPrompt,
+        imagePath,
+        resolve,
+      };
+    });
+  }
+
+  private async continueExecution(
+    chatId: string,
+    messageId: string,
+    session: UserSession,
+    abortController: AbortController,
+    rateLimiter: RateLimiter,
+    processor: StreamProcessor,
+    displayPrompt: string,
+    imagePath?: string,
+  ): Promise<void> {
+    const task = this.runningTasks.get(chatId);
+    if (!task) return;
+
+    // Clear waiting state
+    delete task.waitingForContinue;
+
+    // Update card to show continuing
+    await this.sender.updateCard(
+      messageId,
+      buildCard({
+        status: 'running',
+        userPrompt: displayPrompt,
+        responseText: processor.getResponseText(),
+        toolCalls: processor.getToolCalls(),
+      }),
+    );
+
+    let lastState: CardState = {
+      status: 'running',
+      userPrompt: displayPrompt,
+      responseText: processor.getResponseText(),
+      toolCalls: processor.getToolCalls(),
+    };
+
+    try {
+      // Continue with more turns (add 50 more turns)
+      const stream = this.executor.execute({
+        prompt: 'Please continue with the previous task.',
+        cwd: session.workingDirectory!,
+        sessionId: session.sessionId,
+        systemPrompt: session.systemPrompt,
+        abortController,
+      });
+
+      for await (const message of stream) {
+        if (abortController.signal.aborted) break;
+
+        const state = processor.processMessage(message);
+        lastState = state;
+
+        // Update session ID if discovered
+        const newSessionId = processor.getSessionId();
+        if (newSessionId && newSessionId !== session.sessionId) {
+          this.sessionManager.setSessionId(chatId, newSessionId);
+        }
+
+        // Throttled card update for non-final states
+        if (state.status !== 'complete' && state.status !== 'error') {
+          rateLimiter.schedule(() => {
+            this.sender.updateCard(messageId, buildCard(state));
+          });
+        }
+      }
+
+      // Flush any pending update
+      await rateLimiter.flush();
+
+      // Check again if max turns reached
+      if (lastState.status === 'error' && lastState.errorMessage?.includes('error_max_turns')) {
+        const shouldContinue = await this.askToContinue(chatId, messageId, lastState, processor, displayPrompt, imagePath);
+
+        if (shouldContinue) {
+          // Recursively continue
+          await this.continueExecution(chatId, messageId, session, abortController, rateLimiter, processor, displayPrompt, imagePath);
+          return;
+        }
+      }
+
+      // Send final card
+      await this.sender.updateCard(messageId, buildCard(lastState));
+
+      // Send any images produced by Claude
+      await this.sendOutputImages(chatId, processor, lastState);
+    } catch (err: any) {
+      this.logger.error({ err, chatId }, 'Claude continuation error');
+
+      const errorState: CardState = {
+        status: 'error',
+        userPrompt: displayPrompt,
+        responseText: lastState.responseText,
+        toolCalls: lastState.toolCalls,
+        errorMessage: err.message || 'Unknown error',
+      };
+      await rateLimiter.flush();
+      await this.sender.updateCard(messageId, buildCard(errorState));
+    } finally {
+      this.runningTasks.delete(chatId);
+      // Cleanup temp image
+      if (imagePath) {
+        try { fs.unlinkSync(imagePath); } catch { /* ignore */ }
       }
     }
   }

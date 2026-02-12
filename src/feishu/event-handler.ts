@@ -28,6 +28,15 @@ export function createEventDispatcher(
         const message = event.message;
         const sender = event.sender;
 
+        // Log ALL incoming events for debugging
+        logger.debug({
+          chatType: message?.chat_type,
+          messageType: message?.message_type,
+          hasMentions: !!message?.mentions,
+          mentionsCount: message?.mentions?.length || 0,
+          chatId: message?.chat_id,
+        }, 'Received event');
+
         const msgType = message.message_type;
 
         // Only handle text, post (rich text), and image messages
