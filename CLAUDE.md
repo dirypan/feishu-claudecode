@@ -99,9 +99,14 @@ When users request files (e.g., "send me the file", "can I download that?"), you
 2. **Use sendFileFromPath**: `await this.sender.sendFileFromPath(chatId, filePath)`
 3. **Send confirmation**: Optionally send a text message confirming the file was sent
 
+The `/send-file` command supports both files and folders:
+- **Files**: Sent directly if under 30MB
+- **Folders**: Automatically compressed to `.tar.gz` format. If compressed size exceeds 30MB, an error is raised.
+
 Common scenarios:
 - User asks for a generated report/document
 - User wants to download a created file
+- User requests a project folder or directory
 - User requests a log file or configuration file
 
 The file will be uploaded to Feishu and sent as a downloadable attachment in the chat.

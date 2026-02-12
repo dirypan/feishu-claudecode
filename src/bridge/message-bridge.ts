@@ -259,7 +259,7 @@ export class MessageBridge {
         if (!arg) {
           await this.sender.sendCard(
             chatId,
-            buildTextCard('⚠️ Usage', '`/send-file /path/to/file`', 'orange'),
+            buildTextCard('⚠️ Usage', '`/send-file /path/to/file-or-folder`\n\nFolders will be compressed automatically.', 'orange'),
           );
           return;
         }
@@ -268,32 +268,87 @@ export class MessageBridge {
         const expanded = arg.startsWith('~') ? arg.replace('~', os.homedir()) : arg;
         const resolvedPath = path.resolve(expanded);
 
-        // Validate file exists
+        // Validate path exists
         try {
           const stat = fs.statSync(resolvedPath);
-          if (!stat.isFile()) {
-            await this.sender.sendCard(
-              chatId,
-              buildTextCard('❌ Error', `Not a file: \`${resolvedPath}\``, 'red'),
-            );
-            return;
-          }
+          let fileToSend = resolvedPath;
+          let isTemporary = false;
 
-          // Check file size (30MB limit)
-          if (stat.size > 30 * 1024 * 1024) {
+          if (stat.isDirectory()) {
+            // Compress directory
+            const baseName = path.basename(resolvedPath);
+            const tmpDir = path.join(os.tmpdir(), 'feishu-claudecode');
+            fs.mkdirSync(tmpDir, { recursive: true });
+            const archivePath = path.join(tmpDir, `${baseName}-${Date.now()}.tar.gz`);
+
+            try {
+              // Use tar to compress the directory
+              const { execSync } = await import('node:child_process');
+              const parentDir = path.dirname(resolvedPath);
+              execSync(`tar -czf "${archivePath}" -C "${parentDir}" "${baseName}"`, {
+                stdio: 'pipe',
+                maxBuffer: 50 * 1024 * 1024, // 50MB buffer
+              });
+
+              // Check compressed file size
+              const archiveStat = fs.statSync(archivePath);
+              if (archiveStat.size > 30 * 1024 * 1024) {
+                fs.unlinkSync(archivePath);
+                await this.sender.sendCard(
+                  chatId,
+                  buildTextCard('❌ Error', `Compressed folder too large: ${(archiveStat.size / 1024 / 1024).toFixed(2)}MB (max 30MB)`, 'red'),
+                );
+                return;
+              }
+
+              fileToSend = archivePath;
+              isTemporary = true;
+              this.logger.info({ originalPath: resolvedPath, archivePath, size: archiveStat.size }, 'Compressed folder for sending');
+            } catch (err: any) {
+              if (fs.existsSync(archivePath)) {
+                fs.unlinkSync(archivePath);
+              }
+              this.logger.error({ err, resolvedPath }, 'Failed to compress folder');
+              await this.sender.sendCard(
+                chatId,
+                buildTextCard('❌ Error', `Failed to compress folder: ${err.message}`, 'red'),
+              );
+              return;
+            }
+          } else if (stat.isFile()) {
+            // Check file size (30MB limit)
+            if (stat.size > 30 * 1024 * 1024) {
+              await this.sender.sendCard(
+                chatId,
+                buildTextCard('❌ Error', `File too large: ${(stat.size / 1024 / 1024).toFixed(2)}MB (max 30MB)`, 'red'),
+              );
+              return;
+            }
+          } else {
             await this.sender.sendCard(
               chatId,
-              buildTextCard('❌ Error', `File too large: ${(stat.size / 1024 / 1024).toFixed(2)}MB (max 30MB)`, 'red'),
+              buildTextCard('❌ Error', `Not a file or directory: \`${resolvedPath}\``, 'red'),
             );
             return;
           }
 
           // Send the file
-          const success = await this.sender.sendFileFromPath(chatId, resolvedPath);
+          const success = await this.sender.sendFileFromPath(chatId, fileToSend);
+
+          // Clean up temporary file
+          if (isTemporary && fs.existsSync(fileToSend)) {
+            try {
+              fs.unlinkSync(fileToSend);
+            } catch (err) {
+              this.logger.warn({ err, fileToSend }, 'Failed to clean up temporary archive');
+            }
+          }
+
           if (success) {
+            const displayPath = stat.isDirectory() ? `${resolvedPath}/ (compressed)` : resolvedPath;
             await this.sender.sendCard(
               chatId,
-              buildTextCard('✅ File Sent', `\`${resolvedPath}\``, 'green'),
+              buildTextCard('✅ File Sent', `\`${displayPath}\``, 'green'),
             );
           } else {
             await this.sender.sendCard(
@@ -301,10 +356,10 @@ export class MessageBridge {
               buildTextCard('❌ Error', 'Failed to send file. Check logs for details.', 'red'),
             );
           }
-        } catch {
+        } catch (err: any) {
           await this.sender.sendCard(
             chatId,
-            buildTextCard('❌ Error', `File not found: \`${resolvedPath}\``, 'red'),
+            buildTextCard('❌ Error', `Path not found: \`${resolvedPath}\``, 'red'),
           );
         }
         break;

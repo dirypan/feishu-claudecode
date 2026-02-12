@@ -139,7 +139,7 @@ export function buildHelpCard(): string {
           '`/reset-system-prompt` - Reset system prompt to default',
           '`/stop` - Abort current running task',
           '`/status` - Show current session and directory info',
-          '`/send-file /path/to/file` - Send a file to this chat',
+          '`/send-file /path/to/file-or-folder` - Send file or compressed folder',
           '`/help` - Show this help message',
           '',
           '**Usage:**',
