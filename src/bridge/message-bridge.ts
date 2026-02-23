@@ -17,7 +17,7 @@ import { ClaudeExecutor } from '../claude/executor.js';
 import { StreamProcessor, extractImagePaths } from '../claude/stream-processor.js';
 import { SessionManager, type UserSession } from '../claude/session-manager.js';
 import { RateLimiter } from './rate-limiter.js';
-import { AVAILABLE_MODELS, isValidModel, getModelInfo } from '../claude/models.js';
+import { getAvailableModels, isValidModel, getModelInfo } from '../claude/models.js';
 
 const TASK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -368,10 +368,10 @@ export class MessageBridge {
 
       case '/list-models': {
         const session = this.sessionManager.getSession(chatId);
-        const currentModel = session.model || this.config.claude.model || 'claude-sonnet-4-5 (SDK default)';
+        const currentModel = session.model || this.config.claude.model || 'claude-sonnet-4-6';
 
         let modelList = `**Current model:** \`${currentModel}\`\n\n**Available models:**\n\n`;
-        for (const model of AVAILABLE_MODELS) {
+        for (const model of getAvailableModels()) {
           const marker = (session.model === model.id || (!session.model && this.config.claude.model === model.id)) ? '✓ ' : '  ';
           modelList += `${marker}\`${model.id}\`\n  ${model.name} - ${model.description}\n\n`;
         }
@@ -396,7 +396,7 @@ export class MessageBridge {
         // Allow "default" or "reset" to clear model override
         if (arg === 'default' || arg === 'reset') {
           this.sessionManager.setModel(chatId, undefined);
-          const defaultModel = this.config.claude.model || 'claude-sonnet-4-5 (SDK default)';
+          const defaultModel = this.config.claude.model || 'claude-sonnet-4-6';
           await this.sender.sendCard(
             chatId,
             buildTextCard('✅ Model Reset', `Using default model: \`${defaultModel}\``, 'green'),

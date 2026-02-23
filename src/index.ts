@@ -4,6 +4,7 @@ import { createLogger } from './utils/logger.js';
 import { createEventDispatcher } from './feishu/event-handler.js';
 import { MessageSender } from './feishu/message-sender.js';
 import { MessageBridge } from './bridge/message-bridge.js';
+import { initializeModels } from './claude/models.js';
 
 async function main() {
   const config = loadConfig();
@@ -35,6 +36,14 @@ async function main() {
   // Create sender and bridge
   const sender = new MessageSender(client, logger);
   const bridge = new MessageBridge(config, logger, sender);
+
+  // Fetch available models from Claude Code CLI (best-effort, falls back to hardcoded list)
+  const modelsDir = config.claude.defaultWorkingDirectory || process.cwd();
+  initializeModels(modelsDir).then(() => {
+    logger.info('Claude models loaded from SDK');
+  }).catch(() => {
+    logger.warn('Failed to load models from SDK, using hardcoded fallback');
+  });
 
   // Create event dispatcher wired to the bridge
   const dispatcher = createEventDispatcher(config, logger, (msg) => {

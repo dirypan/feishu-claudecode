@@ -76,11 +76,9 @@ export class ClaudeExecutor {
       settingSources: ['user', 'project'],
     };
 
-    // Priority: session model > config model > SDK default
-    const effectiveModel = model || this.config.claude.model;
-    if (effectiveModel) {
-      queryOptions.model = effectiveModel;
-    }
+    // Priority: session model > config model > explicit default
+    const effectiveModel = model || this.config.claude.model || 'claude-sonnet-4-6';
+    queryOptions.model = effectiveModel;
 
     // Use session-level system prompt if provided, otherwise use config default
     const effectiveSystemPrompt = systemPrompt !== undefined ? systemPrompt : this.config.claude.systemPrompt;
